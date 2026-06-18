@@ -225,10 +225,12 @@
     statusEl.classList.add("live");
   }
 
-  // 음성 인식
+  // ===== 음성 인식 (멈춤 누르기 전까지 끊김 없이 계속 듣기) =====
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   var recog = null;
-  var wantListen = false;
+  var wantListen = false;   // 사용자가 듣기를 원하는 상태
+  var running = false;      // 실제로 인식이 돌아가는 중인지
+  var restartTimer = null;
   var interimEl = null;
 
   if(!SR){
@@ -243,6 +245,7 @@
     var r = new SR();
     r.lang = srcLang(); r.continuous = true; r.interimResults = true;
     r.onstart = function(){
+      running = true;
       micBtn.classList.add("on"); micLabel.textContent = "멈추기";
       statusEl.textContent = "듣고 있습니다 · 말씀해 주세요"; statusEl.classList.add("live");
     };
@@ -257,8 +260,8 @@
       if(interim.trim()){ showInterim(interim.trim()); }
     };
     r.onerror = function(e){
-      // 마이크 권한 문제만 진짜로 멈춘다. no-speech·aborted·network 같은 일시적
-      // 오류는 무시하고, onend에서 자동으로 다시 듣게 해 강의 중 끊기지 않게 한다.
+      // 마이크 권한 문제만 진짜로 멈춘다.
+      // no-speech·aborted·network 같은 일시적 오류는 무시 → onend가 다시 살린다.
       if(e.error === "not-allowed" || e.error === "service-not-allowed"){
         stopListening();
         statusEl.textContent = "마이크 권한이 필요합니다. 주소창 옆에서 마이크를 허용해 주세요.";
@@ -266,17 +269,25 @@
       }
     };
     r.onend = function(){
-      // 멈춤 버튼을 누르기 전까지는 계속 듣는다 (말 사이 침묵에도 자동으로 다시 시작)
-      if(wantListen){
-        setTimeout(function(){
-          if(wantListen){
-            recog = buildRecog();
-            try{ recog.start(); }catch(_){}
-          }
-        }, 250);
-      }
+      running = false;
+      if(wantListen){ scheduleRestart(); }
     };
     return r;
+  }
+
+  // 인식이 끝나면(침묵·세션 시간제한 등) 다시 살린다.
+  // 시작이 실패해도 포기하지 않고 잠시 뒤 다시 시도한다.
+  function scheduleRestart(){
+    if(restartTimer){ return; }
+    restartTimer = setTimeout(function(){
+      restartTimer = null;
+      if(wantListen && !running){
+        running = true;               // 낙관적 잠금(중복 시작 방지)
+        recog = buildRecog();
+        try{ recog.start(); }
+        catch(_){ running = false; scheduleRestart(); }
+      }
+    }, 350);
   }
 
   function showInterim(text){
@@ -357,20 +368,22 @@
 
   function startListening(){
     if(!SR) return;
-    wantListen = true; listening = true;
+    wantListen = true; listening = true; running = true;
     recog = buildRecog();
     micBtn.classList.add("on"); micLabel.textContent = "준비 중…";
     statusEl.textContent = "마이크를 준비하고 있습니다…"; statusEl.classList.add("live");
     try{
       recog.start();
     }catch(err){
+      running = false;
       stopListening();
       statusEl.textContent = "다시 한 번 눌러 주세요.";
       statusEl.classList.add("live");
     }
   }
   function stopListening(){
-    wantListen = false; listening = false;
+    wantListen = false; listening = false; running = false;
+    if(restartTimer){ clearTimeout(restartTimer); restartTimer = null; }
     if(recog){ try{ recog.stop(); }catch(_){} recog = null; }
     clearInterim();
     micBtn.classList.remove("on"); micLabel.textContent = "말하기 시작";
@@ -413,6 +426,15 @@
     if(gate.style.display !== "none" && gate.style.display !== "") return;
     if(e.code === "Space" && e.target.tagName !== "SELECT" && e.target.tagName !== "INPUT"){ e.preventDefault(); toggleListen(); }
   });
+
+  // 안전망: 들어야 하는데 어떤 이유로든 멈춰 있으면 주기적으로 되살린다.
+  setInterval(function(){
+    if(wantListen && !running && !restartTimer){
+      running = true;
+      recog = buildRecog();
+      try{ recog.start(); }catch(_){ running = false; }
+    }
+  }, 4000);
 
   paintDirection();
   openGate();
