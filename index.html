@@ -117,6 +117,18 @@
   .reset:hover{color:var(--muted)}
   .reset:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 
+  .tgt-wrap{display:flex; align-items:center; gap:14px}
+  .speak{
+    flex:0 0 auto; width:42px; height:42px; border-radius:50%;
+    border:1px solid var(--line); background:var(--surface); color:var(--accent);
+    font-size:1.15rem; cursor:pointer; display:none; align-items:center; justify-content:center;
+    transition:background .2s, transform .1s;
+  }
+  .speak.show{display:inline-flex}
+  .speak:hover{background:var(--accent-soft)}
+  .speak:active{transform:scale(.94)}
+  .speak:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
+
   @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
 </style>
 </head>
@@ -310,15 +322,27 @@
     var olds = log.querySelectorAll(".turn.latest");
     for(var i=0;i<olds.length;i++){ olds[i].classList.remove("latest"); }
 
+    var tgtSpeechLang = tgtLang();          // 소리낼 언어 (예: "en-US")
+    var srcCode = SHORT[srcLang()];
+    var tgtCode = SHORT[tgtLang()];
+
     var wrap = document.createElement("div"); wrap.className = "turn latest";
     var srcDiv = document.createElement("div"); srcDiv.className = "src"; srcDiv.textContent = text;
+    var tgtWrap = document.createElement("div"); tgtWrap.className = "tgt-wrap";
     var tgtDiv = document.createElement("div"); tgtDiv.className = "tgt pending"; tgtDiv.textContent = "번역 중…";
-    wrap.appendChild(srcDiv); wrap.appendChild(tgtDiv); log.appendChild(wrap);
+    var speakBtn = document.createElement("button");
+    speakBtn.className = "speak"; speakBtn.type = "button";
+    speakBtn.setAttribute("aria-label", "소리내어 읽기");
+    speakBtn.textContent = "🔊";
+    tgtWrap.appendChild(tgtDiv); tgtWrap.appendChild(speakBtn);
+    wrap.appendChild(srcDiv); wrap.appendChild(tgtWrap); log.appendChild(wrap);
     scrollDown();
 
     try{
-      var result = await translate(text, SHORT[srcLang()], SHORT[tgtLang()], tgtDiv);
+      var result = await translate(text, srcCode, tgtCode, tgtDiv);
       tgtDiv.textContent = result; tgtDiv.classList.remove("pending");
+      speakBtn.classList.add("show");
+      speakBtn.addEventListener("click", function(){ speak(result, tgtSpeechLang); });
     }catch(err){
       if(err && err.message === "unsupported"){
         tgtDiv.textContent = "크롬 데스크톱(HTTPS)에서 열어야 번역이 작동합니다.";
@@ -330,6 +354,18 @@
       tgtDiv.classList.remove("pending"); tgtDiv.classList.add("error");
     }
     scrollDown();
+  }
+
+  // 번역문을 소리내어 읽기 (브라우저 내장 음성 합성 · 무료)
+  function speak(text, langCode){
+    if(!("speechSynthesis" in window) || !text){ return; }
+    try{
+      window.speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = langCode;
+      u.rate = 0.95;
+      window.speechSynthesis.speak(u);
+    }catch(_){}
   }
 
   // 크롬 내장 번역 (기기 내 처리 · API 키/비용 없음)
