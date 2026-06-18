@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>실시간 번역</title>
+<style>
+  :root{
+    --bg:#e9ecf1; --surface:#ffffff; --ink:#191c23;
+    --muted:#6b7280; --faint:#9aa1ad; --line:#d4d9e1;
+    --accent:#2f54d4; --accent-soft:#e7ecfd; --warn:#b5462f;
+    font-size:16px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Malgun Gothic","Segoe UI",sans-serif;
+    display:flex; flex-direction:column; height:100vh; overflow:hidden;
+  }
+
+  /* 인트로 화면 */
+  .gate{
+    position:fixed; inset:0; z-index:50; background:var(--bg);
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .gate-box{
+    background:var(--surface); border:1px solid var(--line);
+    border-radius:20px; padding:38px 30px; width:100%; max-width:400px; text-align:center;
+  }
+  .gate-brand{font-size:.95rem; color:var(--muted); font-weight:600; margin-bottom:5px}
+  .gate-title{font-size:1.5rem; font-weight:800; margin-bottom:10px; letter-spacing:-.01em}
+  .gate-desc{font-size:.95rem; color:var(--muted); margin-bottom:24px; line-height:1.5}
+  .gate button{
+    width:100%; font:inherit; font-size:1.05rem; font-weight:700; color:#fff;
+    background:var(--accent); border:none; border-radius:12px; padding:15px; cursor:pointer; min-height:52px;
+  }
+  .gate button:hover{background:#2746b8}
+  .gate-hint{color:var(--faint); font-size:.82rem; margin-top:18px; line-height:1.55}
+
+  header{
+    flex:0 0 auto; display:flex; align-items:center; justify-content:center;
+    gap:12px; padding:18px 20px; background:var(--surface);
+    border-bottom:1px solid var(--line); flex-wrap:wrap;
+  }
+  .lang-chip{
+    display:flex; align-items:center; gap:8px; font-weight:700; font-size:1.05rem;
+    color:var(--ink); background:var(--bg); border:1px solid var(--line);
+    border-radius:999px; padding:9px 16px; min-height:44px;
+  }
+  .lang-chip.active{border-color:var(--accent); background:var(--accent-soft); color:var(--accent)}
+  select{font:inherit; font-weight:700; color:inherit; background:transparent; border:none; outline:none; cursor:pointer; padding:2px 4px}
+  .swap{
+    width:46px; height:46px; border-radius:50%; border:1px solid var(--line);
+    background:var(--surface); color:var(--accent); font-size:1.25rem; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    transition:transform .35s ease, background .2s; flex:0 0 auto;
+  }
+  .swap:hover{background:var(--accent-soft)}
+  .swap:active{transform:rotate(180deg)}
+  .swap:focus-visible{outline:3px solid var(--accent); outline-offset:2px}
+
+  main{
+    flex:1 1 auto; overflow-y:auto; padding:28px clamp(20px,5vw,80px);
+    display:flex; flex-direction:column; gap:30px;
+  }
+  .empty{margin:auto; text-align:center; color:var(--faint); max-width:440px}
+  .empty .big{font-size:1.4rem; font-weight:700; color:var(--muted); margin-bottom:10px}
+  .empty .sub{font-size:1rem; line-height:1.6}
+
+  .turn{display:flex; flex-direction:column; gap:6px; opacity:.55; transition:opacity .4s ease}
+  .turn.latest{opacity:1}
+  .turn .src{font-size:1.1rem; color:var(--muted); font-weight:500; line-height:1.4}
+  .turn .tgt{font-size:1.7rem; font-weight:700; line-height:1.4; color:var(--ink); letter-spacing:-.01em}
+  .turn.latest .tgt{font-size:clamp(2rem,4.5vw,3.4rem); line-height:1.3}
+  .turn .tgt.pending{color:var(--faint); font-weight:500}
+  .turn .tgt.error{color:var(--warn); font-weight:600; font-size:1.3rem}
+
+  footer{
+    flex:0 0 auto; display:flex; flex-direction:column; align-items:center;
+    gap:12px; padding:22px 20px calc(22px + env(safe-area-inset-bottom));
+    background:var(--surface); border-top:1px solid var(--line);
+  }
+  .type-row{display:flex; align-items:center; gap:8px; width:100%; max-width:560px}
+  .type-row input{
+    flex:1 1 auto; font:inherit; font-size:1.05rem; color:var(--ink);
+    background:var(--bg); border:1px solid var(--line); border-radius:12px;
+    padding:13px 16px; min-height:50px; outline:none;
+  }
+  .type-row input:focus{border-color:var(--accent); background:var(--surface)}
+  .type-row input::placeholder{color:var(--faint)}
+  .send{
+    flex:0 0 auto; font:inherit; font-size:1rem; font-weight:700; color:#fff;
+    background:var(--accent); border:none; border-radius:12px;
+    padding:13px 20px; min-height:50px; cursor:pointer; transition:background .2s;
+  }
+  .send:hover{background:#2746b8}
+  .send:active{transform:scale(.97)}
+  .send:focus-visible{outline:3px solid var(--ink); outline-offset:2px}
+  .mic{
+    display:flex; align-items:center; gap:12px; font:inherit; font-size:1.15rem;
+    font-weight:700; color:#fff; background:var(--accent); border:none;
+    border-radius:999px; padding:16px 34px; cursor:pointer; min-height:58px;
+    transition:background .2s, transform .1s;
+  }
+  .mic:hover{background:#2746b8}
+  .mic:active{transform:scale(.97)}
+  .mic:focus-visible{outline:3px solid var(--ink); outline-offset:3px}
+  .mic.on{background:var(--warn)}
+  .mic.on:hover{background:#9c3c28}
+  .mic .dot{width:14px; height:14px; border-radius:50%; background:#fff; flex:0 0 auto}
+  .mic.on .dot{animation:pulse 1.1s infinite}
+  @keyframes pulse{0%{transform:scale(1);opacity:1}50%{transform:scale(1.5);opacity:.4}100%{transform:scale(1);opacity:1}}
+  .status{font-size:.95rem; color:var(--muted); min-height:1.2em; text-align:center}
+  .status.live{color:var(--warn); font-weight:600}
+  .reset{background:none; border:none; color:var(--faint); font:inherit; font-size:.85rem; cursor:pointer; padding:4px 10px; text-decoration:underline; text-underline-offset:3px; border-radius:6px}
+  .reset:hover{color:var(--muted)}
+  .reset:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+  @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="gate" id="gate">
+  <div class="gate-box">
+    <div class="gate-brand">쿠키쌤과 크로가 만든</div>
+    <div class="gate-title">실시간 번역 도구</div>
+    <div class="gate-desc">크롬에 내장된 번역 기능을 사용합니다. 별도 비용 없이 작동합니다.</div>
+    <button id="startBtn">시작하기</button>
+    <div class="gate-hint">크롬 데스크톱에서 가장 잘 작동합니다. 마이크로 말하거나 직접 입력하면 번역이 큰 글씨로 나타납니다. 처음 쓰는 언어는 모델을 한 번 받느라 잠깐 걸릴 수 있어요.</div>
+  </div>
+</div>
+
+<header>
+  <span class="lang-chip" id="chipSrc">한국어</span>
+  <button class="swap" id="swapBtn" aria-label="번역 방향 바꾸기" title="방향 바꾸기">⇄</button>
+  <span class="lang-chip active" id="chipTgt">
+    <select id="foreignSelect" aria-label="외국어 선택">
+      <option value="en-US">English(영어)</option>
+      <option value="ja-JP">日本語(일본어)</option>
+      <option value="zh-CN">中文(중국어)</option>
+      <option value="es-ES">Español(스페인어)</option>
+      <option value="fr-FR">Français(프랑스어)</option>
+      <option value="de-DE">Deutsch(독일어)</option>
+      <option value="vi-VN">Tiếng Việt(베트남어)</option>
+      <option value="id-ID">Indonesia(인도네시아어)</option>
+      <option value="th-TH">ไทย(태국어)</option>
+      <option value="ru-RU">Русский(러시아어)</option>
+    </select>
+  </span>
+</header>
+
+<main id="log">
+  <div class="empty" id="empty">
+    <div class="big">마이크를 켜거나 직접 입력해 주세요</div>
+    <div class="sub">말씀하신 내용이 위쪽에, 번역이 큰 글씨로 아래에 나타납니다. 가운데 ⇄ 버튼으로 번역 방향을 바꿀 수 있습니다.</div>
+  </div>
+</main>
+
+<footer>
+  <div class="type-row">
+    <input id="textInput" type="text" placeholder="또는 여기에 입력하고 Enter를 누르세요" aria-label="번역할 문장 입력">
+    <button class="send" id="sendBtn">번역</button>
+  </div>
+  <button class="mic" id="micBtn"><span class="dot"></span><span id="micLabel">말하기 시작</span></button>
+  <div class="status" id="status">크롬 데스크톱에서 가장 잘 작동합니다</div>
+  <button class="reset" id="resetBtn">처음 화면으로</button>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  // 음성 인식 코드 → 번역 API용 짧은 코드(BCP-47)
+  var SHORT = {
+    "ko-KR":"ko","en-US":"en","ja-JP":"ja","zh-CN":"zh","es-ES":"es",
+    "fr-FR":"fr","de-DE":"de","vi-VN":"vi","id-ID":"id","th-TH":"th","ru-RU":"ru"
+  };
+
+  var koFirst = true;
+  var foreign = "en-US";
+  var listening = false;
+  var started = false;
+
+  var gate = document.getElementById("gate");
+  var startBtn = document.getElementById("startBtn");
+  var chipSrc = document.getElementById("chipSrc");
+  var chipTgt = document.getElementById("chipTgt");
+  var foreignSelect = document.getElementById("foreignSelect");
+  var swapBtn = document.getElementById("swapBtn");
+  var micBtn = document.getElementById("micBtn");
+  var micLabel = document.getElementById("micLabel");
+  var statusEl = document.getElementById("status");
+  var resetBtn = document.getElementById("resetBtn");
+  var textInput = document.getElementById("textInput");
+  var sendBtn = document.getElementById("sendBtn");
+  var log = document.getElementById("log");
+  var empty = document.getElementById("empty");
+
+  function srcLang(){ return koFirst ? "ko-KR" : foreign; }
+  function tgtLang(){ return koFirst ? foreign : "ko-KR"; }
+
+  // 인트로 화면
+  function openGate(){ gate.style.display = "flex"; }
+  function startSession(){ started = true; gate.style.display = "none"; }
+  startBtn.addEventListener("click", startSession);
+
+  // 방향 바
+  function paintDirection(){
+    chipSrc.innerHTML = ""; chipTgt.innerHTML = "";
+    chipSrc.classList.remove("active"); chipTgt.classList.remove("active");
+    var koSpan = document.createElement("span");
+    koSpan.textContent = "한국어";
+    if(koFirst){
+      chipSrc.appendChild(koSpan); chipTgt.appendChild(foreignSelect); chipTgt.classList.add("active");
+    }else{
+      chipSrc.appendChild(foreignSelect); chipTgt.appendChild(koSpan); chipSrc.classList.add("active");
+    }
+  }
+
+  // 번역 지원 여부 확인
+  if(!("Translator" in self)){
+    statusEl.textContent = "이 브라우저는 기기 내 번역을 지원하지 않습니다. 크롬 데스크톱에서 HTTPS 주소로 열어 주세요.";
+    statusEl.classList.add("live");
+  }
+
+  // 음성 인식
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var recog = null;
+  var wantListen = false;
+  var interimEl = null;
+
+  if(!SR){
+    micBtn.disabled = true; micBtn.style.opacity = ".5"; micBtn.style.cursor = "not-allowed";
+    if("Translator" in self){
+      statusEl.textContent = "이 브라우저는 음성 인식을 지원하지 않습니다. 입력창으로 사용하시거나 크롬에서 열어 주세요.";
+      statusEl.classList.add("live");
+    }
+  }
+
+  function buildRecog(){
+    var r = new SR();
+    r.lang = srcLang(); r.continuous = true; r.interimResults = true;
+    r.onstart = function(){
+      micBtn.classList.add("on"); micLabel.textContent = "멈추기";
+      statusEl.textContent = "듣고 있습니다 · 말씀해 주세요"; statusEl.classList.add("live");
+    };
+    r.onresult = function(e){
+      var interim = "";
+      for(var i=e.resultIndex; i<e.results.length; i++){
+        var res = e.results[i];
+        var txt = res[0].transcript;
+        if(res.isFinal){ var clean = txt.trim(); if(clean){ handleFinal(clean); } }
+        else{ interim += txt; }
+      }
+      if(interim.trim()){ showInterim(interim.trim()); }
+    };
+    r.onerror = function(e){
+      if(e.error === "no-speech" || e.error === "aborted") return;
+      stopListening();
+      if(e.error === "not-allowed" || e.error === "service-not-allowed"){
+        statusEl.textContent = "마이크 권한이 필요합니다. 주소창 옆에서 마이크를 허용해 주세요.";
+      }else{
+        statusEl.textContent = "마이크를 시작할 수 없습니다. 다시 한 번 눌러 주세요.";
+      }
+      statusEl.classList.add("live");
+    };
+    r.onend = function(){ if(wantListen){ try{ r.start(); }catch(_){} } };
+    return r;
+  }
+
+  function showInterim(text){
+    hideEmpty();
+    if(!interimEl){
+      interimEl = document.createElement("div");
+      interimEl.className = "turn latest";
+      interimEl.innerHTML = '<div class="src"></div><div class="tgt pending">…</div>';
+      log.appendChild(interimEl);
+    }
+    interimEl.querySelector(".src").textContent = text;
+    scrollDown();
+  }
+  function clearInterim(){ if(interimEl){ interimEl.remove(); interimEl = null; } }
+  function hideEmpty(){ if(empty){ empty.style.display = "none"; } }
+  function scrollDown(){ log.scrollTop = log.scrollHeight; }
+
+  async function handleFinal(text){
+    clearInterim(); hideEmpty();
+    var olds = log.querySelectorAll(".turn.latest");
+    for(var i=0;i<olds.length;i++){ olds[i].classList.remove("latest"); }
+
+    var wrap = document.createElement("div"); wrap.className = "turn latest";
+    var srcDiv = document.createElement("div"); srcDiv.className = "src"; srcDiv.textContent = text;
+    var tgtDiv = document.createElement("div"); tgtDiv.className = "tgt pending"; tgtDiv.textContent = "번역 중…";
+    wrap.appendChild(srcDiv); wrap.appendChild(tgtDiv); log.appendChild(wrap);
+    scrollDown();
+
+    try{
+      var result = await translate(text, SHORT[srcLang()], SHORT[tgtLang()], tgtDiv);
+      tgtDiv.textContent = result; tgtDiv.classList.remove("pending");
+    }catch(err){
+      if(err && err.message === "unsupported"){
+        tgtDiv.textContent = "크롬 데스크톱(HTTPS)에서 열어야 번역이 작동합니다.";
+      }else if(err && err.message === "pair"){
+        tgtDiv.textContent = "이 언어 조합은 아직 지원되지 않습니다.";
+      }else{
+        tgtDiv.textContent = "번역에 실패했습니다. 다시 시도해 주세요.";
+      }
+      tgtDiv.classList.remove("pending"); tgtDiv.classList.add("error");
+    }
+    scrollDown();
+  }
+
+  // 크롬 내장 번역 (기기 내 처리 · API 키/비용 없음)
+  var translators = {};
+  function getTranslator(src, tgt){
+    var key = src + ">" + tgt;
+    if(translators[key]){ return translators[key]; }
+    var p = Translator.create({
+      sourceLanguage: src,
+      targetLanguage: tgt,
+      monitor: function(m){
+        m.addEventListener("downloadprogress", function(e){
+          var pct = Math.round((e.loaded || 0) * 100);
+          statusEl.textContent = "번역 모델 다운로드 중… " + pct + "%";
+          statusEl.classList.add("live");
+        });
+      }
+    });
+    translators[key] = p;
+    p.catch(function(){ delete translators[key]; });
+    return p;
+  }
+
+  async function translate(text, srcCode, tgtCode, tgtDiv){
+    if(!("Translator" in self)){ throw new Error("unsupported"); }
+    var avail = await Translator.availability({ sourceLanguage: srcCode, targetLanguage: tgtCode });
+    if(avail === "unavailable"){ throw new Error("pair"); }
+    if((avail === "downloadable" || avail === "downloading") && tgtDiv){
+      tgtDiv.textContent = "처음 쓰는 언어라 번역 모델을 받는 중이에요…";
+    }
+    var translator = await getTranslator(srcCode, tgtCode);
+    var out = await translator.translate(text);
+    if(listening){ statusEl.textContent = "듣고 있습니다 · 말씀해 주세요"; }
+    return (out || "").trim();
+  }
+
+  function startListening(){
+    if(!SR) return;
+    wantListen = true; listening = true;
+    recog = buildRecog();
+    micBtn.classList.add("on"); micLabel.textContent = "준비 중…";
+    statusEl.textContent = "마이크를 준비하고 있습니다…"; statusEl.classList.add("live");
+    try{
+      recog.start();
+    }catch(err){
+      stopListening();
+      statusEl.textContent = "다시 한 번 눌러 주세요.";
+      statusEl.classList.add("live");
+    }
+  }
+  function stopListening(){
+    wantListen = false; listening = false;
+    if(recog){ try{ recog.stop(); }catch(_){} recog = null; }
+    clearInterim();
+    micBtn.classList.remove("on"); micLabel.textContent = "말하기 시작";
+    statusEl.textContent = "멈춤"; statusEl.classList.remove("live");
+  }
+  function toggleListen(){ if(listening) stopListening(); else startListening(); }
+  function restartIfListening(){ if(listening){ stopListening(); startListening(); } }
+
+  function submitTyped(){
+    var t = textInput.value.trim();
+    if(!t){ return; }
+    hideEmpty();
+    handleFinal(t);
+    textInput.value = "";
+    textInput.focus();
+  }
+
+  function resetSession(){
+    stopListening();
+    var turns = log.querySelectorAll(".turn");
+    for(var i=0;i<turns.length;i++){ turns[i].remove(); }
+    interimEl = null;
+    if(empty){ empty.style.display = ""; }
+    statusEl.textContent = "크롬 데스크톱에서 가장 잘 작동합니다";
+    statusEl.classList.remove("live");
+    openGate();
+  }
+
+  sendBtn.addEventListener("click", submitTyped);
+  textInput.addEventListener("keydown", function(e){
+    if(e.key === "Enter"){ e.preventDefault(); submitTyped(); }
+  });
+  micBtn.addEventListener("click", toggleListen);
+  resetBtn.addEventListener("click", resetSession);
+  swapBtn.addEventListener("click", function(){ koFirst = !koFirst; paintDirection(); restartIfListening(); });
+  foreignSelect.addEventListener("change", function(e){ foreign = e.target.value; restartIfListening(); });
+  foreignSelect.addEventListener("click", function(e){ e.stopPropagation(); });
+
+  document.addEventListener("keydown", function(e){
+    if(gate.style.display !== "none" && gate.style.display !== "") return;
+    if(e.code === "Space" && e.target.tagName !== "SELECT" && e.target.tagName !== "INPUT"){ e.preventDefault(); toggleListen(); }
+  });
+
+  paintDirection();
+  openGate();
+})();
+</script>
+</body>
+</html>
